@@ -34,7 +34,6 @@ def get_db():
         db = client.get_database("spidy_vps")
     return db
 
-# Convert MongoDB ObjectId to string for JSON serialization
 def fix_id(doc):
     if doc and "_id" in doc:
         doc["_id"] = str(doc["_id"])
@@ -52,95 +51,149 @@ def admin_panel():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spidy VPS Manager - Admin Panel (Python)</title>
+  <title>Spidy VPS Manager - Admin Panel</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
-    .container { max-width: 950px; margin: 0 auto; }
-    .card { background: #1e293b; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #334155; }
-    input, textarea, select { width: 100%; padding: 10px; margin: 5px 0 15px; background: #0f172a; border: 1px solid #475569; color: white; border-radius: 5px; box-sizing: border-box; }
-    button { background: #3b82f6; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
-    button.danger { background: #ef4444; }
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-    th, td { padding: 10px; border: 1px solid #334155; text-align: left; }
-    th { background: #0f172a; }
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #3b82f6;
+      --danger: #ef4444;
+      --success: #10b981;
+      --text: #f8fafc;
+      --border: #334155;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    h2 { margin-bottom: 20px; font-size: 1.5rem; text-align: center; color: #60a5fa; }
+    .card { background: var(--card-bg); padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
+    .card-title { font-size: 1.2rem; font-weight: bold; margin-bottom: 15px; color: #93c5fd; }
+    label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; display: block; margin-top: 10px; }
+    input, textarea, select { width: 100%; padding: 12px; margin-top: 5px; background: #0f172a; border: 1px solid var(--border); color: white; border-radius: 8px; box-sizing: border-box; font-size: 0.95rem; }
+    input:focus, textarea:focus { border-color: var(--accent); outline: none; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    button { background: var(--accent); color: white; padding: 12px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 15px; transition: 0.2s; }
+    button:active { opacity: 0.8; }
+    button.danger { background: var(--danger); }
+    button.success { background: var(--success); }
+    button.secondary { background: #475569; }
+    
+    /* Table / List View */
+    .server-item { background: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .server-header { display: flex; justify-content: space-between; align-items: center; }
+    .server-name { font-weight: bold; font-size: 1.1rem; }
+    .server-meta { font-size: 0.85rem; color: #94a3b8; word-break: break-all; }
+    .badge { background: #1e293b; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--border); }
+    .actions { display: flex; gap: 8px; margin-top: 5px; }
+    
+    /* Modal */
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; padding: 15px; z-index: 100; }
+    .modal-content { background: var(--card-bg); width: 100%; max-width: 500px; padding: 20px; border-radius: 12px; border: 1px solid var(--border); max-height: 90vh; overflow-y: auto; }
   </style>
 </head>
 <body>
 <div class="container">
-  <h2>⚙️ Spidy VPS Admin Panel (Python Serverless)</h2>
+  <h2>⚙️ Spidy VPS Admin & Creator</h2>
 
+  <!-- QUICK CREATE USER FORM -->
+  <div class="card" style="border-color: #3b82f6;">
+    <div class="card-title">👤 Quick Create SSH Account</div>
+    <label>Select Server</label>
+    <select id="userServerId"></select>
+    
+    <div class="grid-2">
+      <div><label>Username</label><input type="text" id="newUsername" placeholder="spidyuser"></div>
+      <div><label>Password</label><input type="text" id="newPassword" placeholder="pass123"></div>
+    </div>
+    
+    <label>Duration (Days)</label>
+    <input type="number" id="newDuration" value="7">
+
+    <button class="success" onclick="createAccount()">⚡ Generate Account</button>
+  </div>
+
+  <!-- SERVER MANAGEMENT FORM -->
   <div class="card">
-    <h3 id="formTitle">Add New VPS Server</h3>
+    <div class="card-title" id="formTitle">➕ Add New VPS Server</div>
     <input type="hidden" id="serverId">
     
     <label>Server Name</label>
-    <input type="text" id="name" placeholder="SG-Vultr-01">
+    <input type="text" id="name" placeholder="Oracle-US-01">
     
-    <div style="display:flex; gap:10px;">
-      <div style="flex: 1;">
-        <label>Country Name</label>
-        <input type="text" id="country" placeholder="Singapore">
-      </div>
-      <div style="flex: 1;">
-        <label>Country Flag Emoji</label>
-        <input type="text" id="flagEmoji" placeholder="🇸🇬">
-      </div>
+    <div class="grid-2">
+      <div><label>Country Name</label><input type="text" id="country" placeholder="United States"></div>
+      <div><label>Flag Emoji</label><input type="text" id="flagEmoji" placeholder="🇺🇸"></div>
     </div>
 
     <label>Host / IP Address</label>
-    <input type="text" id="host" placeholder="139.180.128.50">
+    <input type="text" id="host" placeholder="140.245.224.150">
     
-    <div style="display:flex; gap:10px;">
+    <div class="grid-3">
       <div><label>SSH Port</label><input type="number" id="sshPort" value="22"></div>
       <div><label>SSL Port</label><input type="number" id="sslPort" value="443"></div>
       <div><label>UDP Port</label><input type="number" id="udpPort" value="7300"></div>
     </div>
     
     <label>SSH Username</label>
-    <input type="text" id="user" value="root">
+    <input type="text" id="user" value="ubuntu" placeholder="ubuntu or root">
     
-    <label>Private Key (`cat ~/.ssh/id_rsa`)</label>
-    <textarea id="privateKey" rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."></textarea>
+    <label>Private SSH Key (`cat ~/.ssh/id_rsa` or `.key` file content)</label>
+    <textarea id="privateKey" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."></textarea>
     
-    <button onclick="saveServer()">Save Server</button>
-    <button onclick="resetForm()" style="background:#64748b;">Cancel</button>
+    <div style="display:flex; gap:10px;">
+      <button onclick="saveServer()">Save Server</button>
+      <button class="secondary" onclick="resetForm()">Clear</button>
+    </div>
   </div>
 
+  <!-- SERVER LIST -->
   <div class="card">
-    <h3>Existing Servers</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Flag & Location</th>
-          <th>Server Name</th>
-          <th>Host IP</th>
-          <th>Ports (SSL/SSH/UDP)</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="serverTable"></tbody>
-    </table>
+    <div class="card-title">🖥️ Server List</div>
+    <div id="serverList">Loading...</div>
+  </div>
+</div>
+
+<!-- ACCOUNT CONFIG RESULT MODAL -->
+<div id="resultModal" class="modal">
+  <div class="modal-content">
+    <div class="card-title">🎉 Account Created Successfully!</div>
+    <textarea id="accountResultText" rows="12" readonly style="font-family: monospace; font-size: 0.85rem;"></textarea>
+    <button class="success" onclick="copyAccountConfig()">📋 Copy Config Details</button>
+    <button class="secondary" onclick="closeModal()">Close</button>
   </div>
 </div>
 
 <script>
   const API_URL = '/api/admin/servers';
+  let serversCache = [];
 
   async function loadServers() {
     const res = await fetch(API_URL);
-    const data = await res.json();
-    const tbody = document.getElementById('serverTable');
-    tbody.innerHTML = data.map(s => `
-      <tr>
-        <td style="font-size:1.2rem;">${s.flagEmoji || '🌐'} ${s.country || 'N/A'}</td>
-        <td><b>${s.name}</b></td>
-        <td>${s.host}</td>
-        <td>SSL:${s.sslPort} | SSH:${s.sshPort} | UDP:${s.udpPort}</td>
-        <td>
-          <button onclick='editServer(${JSON.stringify(s)})'>Edit</button>
-          <button class="danger" onclick="deleteServer('${s._id}')">Delete</button>
-        </td>
-      </tr>
+    serversCache = await res.json();
+    
+    // Populate Select Options
+    const select = document.getElementById('userServerId');
+    select.innerHTML = serversCache.map(s => `<option value="${s._id}">${s.flagEmoji || '🌐'} ${s.name} (${s.host})</option>`).join('');
+
+    // Populate List
+    const list = document.getElementById('serverList');
+    if (serversCache.length === 0) {
+      list.innerHTML = '<p style="color:#94a3b8;">No servers added yet.</p>';
+      return;
+    }
+
+    list.innerHTML = serversCache.map(s => `
+      <div class="server-item">
+        <div class="server-header">
+          <div class="server-name">${s.flagEmoji || '🌐'} ${s.name} <span class="badge">${s.country || 'N/A'}</span></div>
+          <span class="badge" style="color:#60a5fa;">User: ${s.user || 'root'}</span>
+        </div>
+        <div class="server-meta">IP: <b>${s.host}</b> | SSH: <b>${s.sshPort}</b> | SSL: <b>${s.sslPort}</b> | UDP: <b>${s.udpPort}</b></div>
+        <div class="actions">
+          <button class="secondary" style="margin:0;" onclick='editServer(${JSON.stringify(s)})'>Edit</button>
+          <button class="danger" style="margin:0;" onclick="deleteServer('${s._id}')">Delete</button>
+        </div>
+      </div>
     `).join('');
   }
 
@@ -171,6 +224,59 @@ def admin_panel():
     loadServers();
   }
 
+  async function createAccount() {
+    const payload = {
+      serverId: document.getElementById('userServerId').value,
+      username: document.getElementById('newUsername').value,
+      password: document.getElementById('newPassword').value,
+      duration: parseInt(document.getElementById('newDuration').value)
+    };
+
+    if (!payload.username || !payload.password) {
+      alert('Please fill in username and password');
+      return;
+    }
+
+    const btn = event.target;
+    btn.innerText = 'Creating SSH User...';
+    btn.disabled = true;
+
+    try {
+      const res = await fetch('/api/create-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      btn.innerText = '⚡ Generate Account';
+      btn.disabled = false;
+
+      if (res.ok) {
+        const text = `=========================\n  SPIDY VPS ACCOUNT DATA  \n=========================\nServer   : ${data.flagEmoji} ${data.serverName} (${data.country})\nHost IP  : ${data.host}\nUsername : ${data.username}\nPassword : ${data.password}\n-------------------------\nSSL Port : ${data.sslPort}\nSSH Port : ${data.sshPort}\nUDP Port : ${data.udpPort}\n-------------------------\nExpires  : ${data.expired}\nBanner   : ${data.banner}\n=========================`;
+        document.getElementById('accountResultText').value = text;
+        document.getElementById('resultModal').style.display = 'flex';
+      } else {
+        alert('Error: ' + (data.detail || 'Failed to create user'));
+      }
+    } catch (e) {
+      btn.innerText = '⚡ Generate Account';
+      btn.disabled = false;
+      alert('Network Error: ' + e.message);
+    }
+  }
+
+  function copyAccountConfig() {
+    const txt = document.getElementById('accountResultText');
+    txt.select();
+    document.execCommand('copy');
+    alert('Account configuration copied to clipboard!');
+  }
+
+  function closeModal() {
+    document.getElementById('resultModal').style.display = 'none';
+  }
+
   function editServer(s) {
     document.getElementById('serverId').value = s._id;
     document.getElementById('name').value = s.name;
@@ -180,9 +286,10 @@ def admin_panel():
     document.getElementById('sshPort').value = s.sshPort;
     document.getElementById('sslPort').value = s.sslPort;
     document.getElementById('udpPort').value = s.udpPort;
-    document.getElementById('user').value = s.user;
+    document.getElementById('user').value = s.user || 'ubuntu';
     document.getElementById('privateKey').value = s.privateKey;
-    document.getElementById('formTitle').innerText = 'Edit VPS Server';
+    document.getElementById('formTitle').innerText = '✏️ Edit VPS Server';
+    window.scrollTo({ top: 300, behavior: 'smooth' });
   }
 
   async function deleteServer(id) {
@@ -198,8 +305,9 @@ def admin_panel():
     document.getElementById('country').value = '';
     document.getElementById('flagEmoji').value = '';
     document.getElementById('host').value = '';
+    document.getElementById('user').value = 'ubuntu';
     document.getElementById('privateKey').value = '';
-    document.getElementById('formTitle').innerText = 'Add New VPS Server';
+    document.getElementById('formTitle').innerText = '➕ Add New VPS Server';
   }
 
   loadServers();
@@ -248,8 +356,12 @@ def create_ssh_account(payload: dict = Body(...)):
     exp_date = datetime.date.today() + datetime.timedelta(days=duration)
     formatted_exp_date = exp_date.strftime("%Y-%m-%d")
 
-    # SSH Command
-    ssh_command = f'sudo useradd -e {formatted_exp_date} -M -s /bin/false {clean_user} && echo "{clean_user}:{password}" | sudo chpasswd'
+    # Determine command based on SSH user (root vs ubuntu/sudo)
+    ssh_user = server.get("user", "root")
+    if ssh_user == "root":
+        ssh_command = f"/usr/local/bin/create-user.sh {clean_user} {password} {duration}"
+    else:
+        ssh_command = f"sudo /usr/local/bin/create-user.sh {clean_user} {password} {duration}"
 
     try:
         # Load Private Key with Paramiko
@@ -267,17 +379,18 @@ def create_ssh_account(payload: dict = Body(...)):
         ssh.connect(
             hostname=server["host"],
             port=int(server.get("sshPort", 22)),
-            username=server.get("user", "root"),
+            username=ssh_user,
             pkey=pkey,
             timeout=10
         )
 
         stdin, stdout, stderr = ssh.exec_command(ssh_command)
         exit_status = stdout.channel.recv_exit_status()
+        out_msg = stdout.read().decode().strip()
         err_msg = stderr.read().decode().strip()
         ssh.close()
 
-        if exit_status == 0:
+        if exit_status == 0 and "SUCCESS" in out_msg:
             database.accounts.insert_one({
                 "username": clean_user,
                 "password": password,
@@ -301,7 +414,7 @@ def create_ssh_account(payload: dict = Body(...)):
                 "banner": "Server by spidy"
             }
         else:
-            raise HTTPException(status_code=400, detail=f"User creation failed: {err_msg or 'User may already exist'}")
+            raise HTTPException(status_code=400, detail=out_msg or err_msg or "Failed to create user account")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"SSH Error: {str(e)}")
