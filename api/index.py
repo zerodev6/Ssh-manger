@@ -10,8 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from bson import ObjectId
 import paramiko
+from mangum import Mangum  # Required for Vercel Serverless
 
-app = FastAPI(title="Zero VPN Backend API")
+app = FastAPI(title="Spidy VPN Backend API")
 
 # Enable CORS
 app.add_middleware(
@@ -33,7 +34,7 @@ def get_db():
         raise HTTPException(status_code=500, detail="MONGODB_URI environment variable is missing.")
     if client is None:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        db = client.get_database("zero_vpn")
+        db = client.get_database("spidy_vpn")
     return db
 
 def fix_id(doc):
@@ -75,7 +76,7 @@ def admin_panel():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zero VPN Manager - Admin Panel</title>
+  <title>Spidy VPN Manager - Admin Panel</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -115,32 +116,32 @@ def admin_panel():
 </head>
 <body>
 <div class="container">
-  <h2>🛡️ Zero VPN Server Admin Panel</h2>
+  <h2>🕷️ Spidy VPN Admin Panel</h2>
 
   <!-- QUICK CREATE USER FORM -->
   <div class="card" style="border-color: #3b82f6;">
-    <div class="card-title">👤 Quick Create Zero VPN Account</div>
+    <div class="card-title">👤 Quick Create Spidy VPN Account</div>
     <label>Select Server</label>
     <select id="userServerId"></select>
     
     <div class="grid-2">
-      <div><label>Username</label><input type="text" id="newUsername" placeholder="zerouser"></div>
+      <div><label>Username</label><input type="text" id="newUsername" placeholder="spidyuser"></div>
       <div><label>Password</label><input type="text" id="newPassword" placeholder="pass123"></div>
     </div>
     
     <label>Duration (Days)</label>
     <input type="number" id="newDuration" value="7">
 
-    <button class="success" onclick="createAccount()">⚡ Generate Zero VPN Account</button>
+    <button class="success" onclick="createAccount()">⚡ Generate Spidy VPN Account</button>
   </div>
 
   <!-- SERVER MANAGEMENT FORM -->
   <div class="card">
-    <div class="card-title" id="formTitle">➕ Add Zero VPN Server</div>
+    <div class="card-title" id="formTitle">➕ Add Spidy VPN Server</div>
     <input type="hidden" id="serverId">
     
     <label>Server Name</label>
-    <input type="text" id="name" placeholder="SG-ZeroVIP-01">
+    <input type="text" id="name" placeholder="SG-SpidyVIP-01">
     
     <div class="grid-2">
       <div><label>Country Name</label><input type="text" id="country" placeholder="Singapore"></div>
@@ -176,7 +177,7 @@ def admin_panel():
 
   <!-- SERVER LIST -->
   <div class="card">
-    <div class="card-title">🖥️ Active Zero VPN Servers</div>
+    <div class="card-title">🖥️ Active Spidy VPN Servers</div>
     <div id="serverList">Loading...</div>
   </div>
 </div>
@@ -184,7 +185,7 @@ def admin_panel():
 <!-- ACCOUNT CONFIG RESULT MODAL -->
 <div id="resultModal" class="modal">
   <div class="modal-content">
-    <div class="card-title">🎉 Zero VPN Account Created!</div>
+    <div class="card-title">🎉 Spidy VPN Account Created!</div>
     <textarea id="accountResultText" rows="14" readonly style="font-family: monospace; font-size: 0.85rem;"></textarea>
     <button class="success" onclick="copyAccountConfig()">📋 Copy Details</button>
     <button class="secondary" onclick="closeModal()">Close</button>
@@ -278,18 +279,18 @@ def admin_panel():
       });
 
       const data = await res.json();
-      btn.innerText = '⚡ Generate Zero VPN Account';
+      btn.innerText = '⚡ Generate Spidy VPN Account';
       btn.disabled = false;
 
       if (res.ok) {
-        const text = `=========================\n  ZERO VPN ACCOUNT DATA  \n=========================\nServer   : ${data.flagEmoji} ${data.serverName} (${data.country})\nHost IP  : ${data.host}\nUsername : ${data.username}\nPassword : ${data.password}\n-------------------------\nSSH Port : ${data.sshPort}\nSSL Port : ${data.sslPort}\nUDP Port : ${data.udpPort}\nExpires  : ${data.expired}\n=========================\n--- V2RAY (VMESS) ---\n${data.v2ray.vmess}\n\n--- V2RAY (VLESS) ---\n${data.v2ray.vless}\n=========================`;
+        const text = `=========================\n  SPIDY VPN ACCOUNT DATA  \n=========================\nServer   : ${data.flagEmoji} ${data.serverName} (${data.country})\nHost IP  : ${data.host}\nUsername : ${data.username}\nPassword : ${data.password}\n-------------------------\nSSH Port : ${data.sshPort}\nSSL Port : ${data.sslPort}\nUDP Port : ${data.udpPort}\nExpires  : ${data.expired}\n=========================\n--- V2RAY (VMESS) ---\n${data.v2ray.vmess}\n\n--- V2RAY (VLESS) ---\n${data.v2ray.vless}\n=========================`;
         document.getElementById('accountResultText').value = text;
         document.getElementById('resultModal').style.display = 'flex';
       } else {
         alert('Error: ' + (data.detail || 'Failed to create user'));
       }
     } catch (e) {
-      btn.innerText = '⚡ Generate Zero VPN Account';
+      btn.innerText = '⚡ Generate Spidy VPN Account';
       btn.disabled = false;
       alert('Network Error: ' + e.message);
     }
@@ -320,7 +321,7 @@ def admin_panel():
     document.getElementById('v2rayUuid').value = s.v2rayUuid || '';
     document.getElementById('user').value = s.user || 'ubuntu';
     document.getElementById('privateKey').value = s.privateKey;
-    document.getElementById('formTitle').innerText = '✏️ Edit Zero VPN Server';
+    document.getElementById('formTitle').innerText = '✏️ Edit Spidy VPN Server';
     window.scrollTo({ top: 300, behavior: 'smooth' });
   }
 
@@ -342,7 +343,7 @@ def admin_panel():
     document.getElementById('v2rayUuid').value = '';
     document.getElementById('user').value = 'ubuntu';
     document.getElementById('privateKey').value = '';
-    document.getElementById('formTitle').innerText = '➕ Add Zero VPN Server';
+    document.getElementById('formTitle').innerText = '➕ Add Spidy VPN Server';
   }
 
   loadServers();
@@ -353,23 +354,23 @@ def admin_panel():
 
 
 # ==========================================
-# 2. ZERO VPN APP PUBLIC ENDPOINTS
+# 2. PUBLIC API ENDPOINTS FOR SPIDY VPN
 # ==========================================
 
 @app.get("/")
 def home():
-    return {"status": "Zero VPN API Engine Online", "admin": "/admin", "config": "/api/v1/config.json"}
+    return {"status": "Spidy VPN API Engine Online", "admin": "/admin", "config": "/api/v1/config.json"}
 
-# Endpoint consumed directly by Zero VPN App on launch
+# Endpoint consumed directly by Spidy VPN Android app on launch
 @app.get("/api/v1/config.json")
-def get_zero_vpn_config():
+def get_spidy_vpn_config():
     database = get_db()
     db_servers = list(database.servers.find({"isActive": True}))
     
     server_list = []
     for s in db_servers:
         server_list.append({
-            "name": f"{s.get('flagEmoji', '🌐')} {s.get('name', 'Zero Server')}",
+            "name": f"{s.get('flagEmoji', '🌐')} {s.get('name', 'Spidy Server')}",
             "flag": s.get("country", "US"),
             "host": s.get("host"),
             "port": s.get("sslPort", 443),
@@ -383,8 +384,8 @@ def get_zero_vpn_config():
 
     return {
         "version": 1.0,
-        "title": "Zero VPN Remote Config",
-        "message": "Welcome to Zero VPN - Connected to high-speed infrastructure!",
+        "title": "Spidy VPN Remote Config",
+        "message": "Welcome to Spidy VPN - Fast & Secure Network",
         "servers": server_list,
         "networks": [
             {
@@ -488,14 +489,14 @@ def create_ssh_account(payload: dict = Body(...)):
             v2_uuid = server.get("v2rayUuid") or "00000000-0000-0000-0000-000000000000"
             v2_port = server.get("v2rayPort", 8080)
             v2_path = server.get("v2rayPath", "/v2ray")
-            server_title = f"{server.get('flagEmoji', '🌐')} {server.get('name', 'Zero Server')}"
+            server_title = f"{server.get('flagEmoji', '🌐')} {server.get('name', 'Spidy Server')}"
 
             vmess_link = generate_vmess_link(server_title, server["host"], v2_port, v2_uuid, v2_path)
             vless_link = generate_vless_link(server_title, server["host"], v2_port, v2_uuid, v2_path)
 
             return {
                 "success": True,
-                "appName": "Zero VPN",
+                "appName": "Spidy VPN",
                 "serverName": server.get("name"),
                 "country": server.get("country", "United States"),
                 "flagEmoji": server.get("flagEmoji", "🇺🇸"),
@@ -506,7 +507,7 @@ def create_ssh_account(payload: dict = Body(...)):
                 "username": clean_user,
                 "password": password,
                 "expired": formatted_exp_date,
-                "banner": "Powered by Zero VPN",
+                "banner": "Powered by Spidy VPN",
                 "v2ray": {
                     "port": v2_port,
                     "uuid": v2_uuid,
@@ -555,3 +556,6 @@ def delete_server(server_id: str):
     database = get_db()
     database.servers.delete_one({"_id": ObjectId(server_id)})
     return {"success": True, "message": "Server deleted successfully"}
+
+# Mangum Handler for Vercel
+handler = Mangum(app)
