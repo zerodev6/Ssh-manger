@@ -43,6 +43,17 @@ def fix_id(doc):
         doc["_id"] = str(doc["_id"])
     return doc
 
+def redact_ssh_secrets(doc):
+    """Return a copy of an SSH server doc with secrets masked for list views."""
+    if not doc:
+        return doc
+    safe = dict(doc)
+    if safe.get("adminPassword"):
+        safe["adminPassword"] = "********"
+    if safe.get("privateKey"):
+        safe["privateKey"] = "-----REDACTED-----"
+    return safe
+
 def generate_vmess_link(ps_name, host, port, uuid, path="/v2ray"):
     vmess_dict = {
         "v": "2",
@@ -82,7 +93,7 @@ def home():
 @app.get("/api/v1/config.json")
 def get_spidy_vpn_config():
     database = get_db()
-    
+
     # 1. Fetch Separate SSH Servers
     db_ssh = list(database.ssh_servers.find({"isActive": True}))
     ssh_list = []
@@ -107,7 +118,7 @@ def get_spidy_vpn_config():
         port = v.get("v2rayPort", 8080)
         uuid = v.get("v2rayUuid", "")
         path = v.get("v2rayPath", "/v2ray")
-        
+
         v2ray_list.append({
             "id": str(v["_id"]),
             "name": server_title,
@@ -215,7 +226,7 @@ def create_vpn_account(payload: dict = Body(...)):
         v2_port = server.get("v2rayPort", 8080)
         v2_path = server.get("v2rayPath", "/v2ray")
         server_title = f"{server.get('flagEmoji', '🌐')} {server.get('name', 'Spidy Node')}"
-        
+
         response_data["v2ray"] = {
             "port": v2_port,
             "uuid": v2_uuid,
@@ -236,16 +247,41 @@ def create_vpn_account(payload: dict = Body(...)):
 def get_ssh_servers():
     database = get_db()
     servers = list(database.ssh_servers.find())
-    return [fix_id(s) for s in servers]
+    return [redact_ssh_secrets(fix_id(s)) for s in servers]
 
 @app.post("/api/admin/ssh-servers")
 def add_ssh_server(server_data: dict = Body(...)):
     database = get_db()
+
+    if not server_data.get("host"):
+        raise HTTPException(status_code=400, detail="Host / IP address is required.")
+
+    auth_method = server_data.get("authMethod", "password")
+    if auth_method not in ("password", "key"):
+        raise HTTPException(status_code=400, detail="authMethod must be 'password' or 'key'.")
+
+    admin_username = server_data.get("adminUsername")
+    if not admin_username:
+        raise HTTPException(status_code=400, detail="adminUsername is required to connect to the SSH server.")
+
+    if auth_method == "password":
+        if not server_data.get("adminPassword"):
+            raise HTTPException(status_code=400, detail="adminPassword is required when authMethod is 'password'.")
+        # Ensure a stray privateKey from a prior form state isn't stored
+        server_data.pop("privateKey", None)
+    else:
+        if not server_data.get("privateKey"):
+            raise HTTPException(status_code=400, detail="privateKey is required when authMethod is 'key'.")
+        # Ensure a stray password from a prior form state isn't stored
+        server_data.pop("adminPassword", None)
+
+    server_data["authMethod"] = auth_method
     server_data["isActive"] = True
     server_data["createdAt"] = datetime.datetime.utcnow()
     result = database.ssh_servers.insert_one(server_data)
-    server_data["_id"] = str(result.inserted_id)
-    return server_data
+
+    inserted = database.ssh_servers.find_one({"_id": result.inserted_id})
+    return redact_ssh_secrets(fix_id(inserted))
 
 @app.delete("/api/admin/ssh-servers/{server_id}")
 def delete_ssh_server(server_id: str):
@@ -327,15 +363,17 @@ def admin_panel():
     .card { background: var(--card-bg); padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border); }
     .card-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; color: #93c5fd; }
     label { font-size: 0.8rem; text-transform: uppercase; color: #94a3b8; display: block; margin-top: 10px; }
-    input, select { width: 100%; padding: 10px; margin-top: 5px; background: #0b0f19; border: 1px solid var(--border); color: white; border-radius: 6px; box-sizing: border-box; }
+    input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; background: #0b0f19; border: 1px solid var(--border); color: white; border-radius: 6px; box-sizing: border-box; font-family: inherit; }
+    textarea { font-family: monospace; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
     button { background: var(--accent); color: white; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 15px; }
     button.danger { background: var(--danger); }
     button.success { background: var(--success); }
     button.secondary { background: #334155; }
-    
+
     .server-item { background: #0b0f19; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 10px; }
+    .badge { display:inline-block; font-size: 0.7rem; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background:#1e293b; color:#93c5fd; margin-left: 6px; }
     .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; padding: 15px; }
     .modal-content { background: var(--card-bg); width: 100%; max-width: 500px; padding: 20px; border-radius: 10px; border: 1px solid var(--border); }
   </style>
@@ -349,12 +387,12 @@ def admin_panel():
     <div class="card-title">👤 Issue User Account</div>
     <label>Select Target Server</label>
     <select id="userServerId"></select>
-    
+
     <div class="grid-2">
       <div><label>Username</label><input type="text" id="newUsername" placeholder="spidyuser"></div>
       <div><label>Password</label><input type="text" id="newPassword" placeholder="pass123"></div>
     </div>
-    
+
     <label>Validity (Days)</label>
     <input type="number" id="newDuration" value="7">
 
@@ -366,7 +404,7 @@ def admin_panel():
     <div class="card-title">🔑 Add SSH Server Node</div>
     <label>Server Name</label>
     <input type="text" id="ssh_name" placeholder="SG-SSH-VIP-01">
-    
+
     <div class="grid-2">
       <div><label>Country Name</label><input type="text" id="ssh_country" placeholder="Singapore"></div>
       <div><label>Flag Emoji</label><input type="text" id="ssh_flagEmoji" placeholder="🇸🇬"></div>
@@ -374,13 +412,33 @@ def admin_panel():
 
     <label>Host / IP Address</label>
     <input type="text" id="ssh_host" placeholder="129.225.117.239">
-    
+
     <div class="grid-3">
       <div><label>SSH Port</label><input type="number" id="ssh_sshPort" value="22"></div>
       <div><label>SSL Port</label><input type="number" id="ssh_sslPort" value="443"></div>
       <div><label>UDP Port</label><input type="number" id="ssh_udpPort" value="7300"></div>
     </div>
-    
+
+    <label>Auth Method (used by the backend to connect to this node)</label>
+    <select id="ssh_authMethod" onchange="toggleSshAuthFields()">
+      <option value="password">Username / Password</option>
+      <option value="key">Private Key</option>
+    </select>
+
+    <div id="ssh_passwordFields">
+      <div class="grid-2">
+        <div><label>SSH Username</label><input type="text" id="ssh_username" placeholder="root"></div>
+        <div><label>SSH Password</label><input type="password" id="ssh_password" placeholder="••••••••"></div>
+      </div>
+    </div>
+
+    <div id="ssh_keyFields" style="display:none;">
+      <label>SSH Username</label>
+      <input type="text" id="ssh_key_username" placeholder="root">
+      <label>Private Key (PEM)</label>
+      <textarea id="ssh_privateKey" rows="6" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+    </div>
+
     <button onclick="saveSshServer()">Save SSH Server</button>
   </div>
 
@@ -395,7 +453,7 @@ def admin_panel():
     <div class="card-title">🚀 Add V2Ray Main Server Node</div>
     <label>Server Name</label>
     <input type="text" id="v2_name" placeholder="SG-V2Ray-VIP-01">
-    
+
     <div class="grid-2">
       <div><label>Country Name</label><input type="text" id="v2_country" placeholder="Singapore"></div>
       <div><label>Flag Emoji</label><input type="text" id="v2_flagEmoji" placeholder="🇸🇬"></div>
@@ -403,13 +461,13 @@ def admin_panel():
 
     <label>Host / IP Address</label>
     <input type="text" id="v2_host" placeholder="129.225.117.240">
-    
+
     <div class="grid-3">
       <div><label>V2Ray Port</label><input type="number" id="v2_v2rayPort" value="8080"></div>
       <div><label>V2Ray Path</label><input type="text" id="v2_v2rayPath" value="/v2ray"></div>
       <div><label>UUID</label><input type="text" id="v2_v2rayUuid" placeholder="auto/custom-uuid"></div>
     </div>
-    
+
     <button onclick="saveV2rayServer()">Save V2Ray Main Server</button>
   </div>
 
@@ -464,6 +522,12 @@ def admin_panel():
 </div>
 
 <script>
+  function toggleSshAuthFields() {
+    const method = document.getElementById('ssh_authMethod').value;
+    document.getElementById('ssh_passwordFields').style.display = method === 'password' ? 'block' : 'none';
+    document.getElementById('ssh_keyFields').style.display = method === 'key' ? 'block' : 'none';
+  }
+
   async function loadAllData() {
     await loadSshServers();
     await loadV2rayServers();
@@ -506,18 +570,26 @@ def admin_panel():
       return;
     }
 
-    list.innerHTML = servers.map(s => `
+    list.innerHTML = servers.map(s => {
+      const authBadge = s.authMethod === 'key'
+        ? '<span class="badge">🔐 Private Key</span>'
+        : '<span class="badge">🔑 Password</span>';
+      return `
       <div class="server-item">
-        <b>${s.flagEmoji || '🌐'} ${s.name}</b> (${s.country})<br>
-        <small style="color:#94a3b8">Host: ${s.host} | SSH: ${s.sshPort} | SSL: ${s.sslPort} | UDPGW: ${s.udpPort}</small>
+        <b>${s.flagEmoji || '🌐'} ${s.name}</b> (${s.country}) ${authBadge}<br>
+        <small style="color:#94a3b8">Host: ${s.host} | SSH: ${s.sshPort} | SSL: ${s.sslPort} | UDPGW: ${s.udpPort}</small><br>
+        <small style="color:#94a3b8">Login user: ${s.adminUsername || '-'}</small>
         <div style="margin-top:8px;">
           <button class="danger" style="padding:6px;" onclick="deleteSshServer('${s._id}')">Remove SSH Server</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   async function saveSshServer() {
+    const authMethod = document.getElementById('ssh_authMethod').value;
+
     const body = {
       name: document.getElementById('ssh_name').value,
       country: document.getElementById('ssh_country').value,
@@ -525,14 +597,29 @@ def admin_panel():
       host: document.getElementById('ssh_host').value,
       sshPort: parseInt(document.getElementById('ssh_sshPort').value),
       sslPort: parseInt(document.getElementById('ssh_sslPort').value),
-      udpPort: parseInt(document.getElementById('ssh_udpPort').value)
+      udpPort: parseInt(document.getElementById('ssh_udpPort').value),
+      authMethod: authMethod
     };
 
-    await fetch('/api/admin/ssh-servers', {
+    if (authMethod === 'password') {
+      body.adminUsername = document.getElementById('ssh_username').value;
+      body.adminPassword = document.getElementById('ssh_password').value;
+    } else {
+      body.adminUsername = document.getElementById('ssh_key_username').value;
+      body.privateKey = document.getElementById('ssh_privateKey').value;
+    }
+
+    const res = await fetch('/api/admin/ssh-servers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert('Failed to save SSH server: ' + (err.detail || res.statusText));
+      return;
+    }
 
     loadAllData();
   }
@@ -588,49 +675,22 @@ def admin_panel():
     loadAllData();
   }
 
-  async function createAccount() {
-    const payload = {
-      serverId: document.getElementById('userServerId').value,
-      username: document.getElementById('newUsername').value,
-      password: document.getElementById('newPassword').value,
-      duration: parseInt(document.getElementById('newDuration').value)
-    };
-
-    const res = await fetch('/api/create-account', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      let text = `=== SPIDY VPN CREDENTIALS ===\nType     : ${data.type}\nServer   : ${data.flagEmoji} ${data.serverName}\nHost     : ${data.host}\nUsername : ${data.username}\nPassword : ${data.password}\nExpires  : ${data.expired}\n`;
-      if (data.v2ray) {
-        text += `\n--- VMESS LINK ---\n${data.v2ray.vmess}\n\n--- VLESS LINK ---\n${data.v2ray.vless}`;
-      }
-      document.getElementById('accountResultText').value = text;
-      document.getElementById('resultModal').style.display = 'flex';
-    } else {
-      alert('Error: ' + (data.detail || 'Creation failed'));
-    }
-  }
-
   async function loadSniHosts() {
     const res = await fetch('/api/v1/sni-hosts');
     const snis = await res.json();
     const list = document.getElementById('sniList');
 
     if (snis.length === 0) {
-      list.innerHTML = '<p style="color:#94a3b8;">No SNI hosts configured.</p>';
+      list.innerHTML = '<p style="color:#94a3b8;">No SNI hosts active.</p>';
       return;
     }
 
     list.innerHTML = snis.map(s => `
       <div class="server-item">
-        <b>${s.name}</b> (${s.category})<br>
-        <small style="color:#94a3b8">SNI: ${s.sniHost || 'None'} | Type: ${s.tunnelType}</small>
+        <b>${s.name}</b> <span class="badge">${s.category || 'General'}</span><br>
+        <small style="color:#94a3b8">SNI: ${s.sniHost || '-'} | DNS: ${s.customDns || '8.8.8.8'} | Type: ${s.tunnelType}</small>
         <div style="margin-top:8px;">
-          <button class="danger" style="padding:6px;" onclick="deleteSni('${s._id}')">Remove SNI</button>
+          <button class="danger" style="padding:6px;" onclick="deleteSniHost('${s._id}')">Remove SNI Host</button>
         </div>
       </div>
     `).join('');
@@ -655,14 +715,48 @@ def admin_panel():
     loadAllData();
   }
 
-  function closeModal() { document.getElementById('resultModal').style.display = 'none'; }
-  async function deleteSni(id) { await fetch(`/api/admin/sni-hosts/${id}`, { method: 'DELETE' }); loadAllData(); }
+  async function deleteSniHost(id) {
+    await fetch(`/api/admin/sni-hosts/${id}`, { method: 'DELETE' });
+    loadAllData();
+  }
+
+  async function createAccount() {
+    const body = {
+      username: document.getElementById('newUsername').value,
+      password: document.getElementById('newPassword').value,
+      duration: parseInt(document.getElementById('newDuration').value),
+      serverId: document.getElementById('userServerId').value
+    };
+
+    const res = await fetch('/api/create-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert('Failed to issue account: ' + (err.detail || res.statusText));
+      return;
+    }
+
+    const data = await res.json();
+    document.getElementById('accountResultText').value = JSON.stringify(data, null, 2);
+    document.getElementById('resultModal').style.display = 'flex';
+  }
+
+  function closeModal() {
+    document.getElementById('resultModal').style.display = 'none';
+  }
 
   loadAllData();
 </script>
 </body>
 </html>
-    """
+"""
 
-# Vercel Serverless Gateway Entry
+
+# ==========================================
+# 4. VERCEL / AWS LAMBDA HANDLER
+# ==========================================
 handler = Mangum(app)
