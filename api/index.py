@@ -1,5 +1,7 @@
 import os
 import io
+import json
+import base64
 import datetime
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Body
@@ -9,7 +11,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import paramiko
 
-app = FastAPI(title="Spidy VPS Manager API")
+app = FastAPI(title="Zero VPN Backend API")
 
 # Enable CORS
 app.add_middleware(
@@ -31,13 +33,35 @@ def get_db():
         raise HTTPException(status_code=500, detail="MONGODB_URI environment variable is missing.")
     if client is None:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        db = client.get_database("spidy_vps")
+        db = client.get_database("zero_vpn")
     return db
 
 def fix_id(doc):
     if doc and "_id" in doc:
         doc["_id"] = str(doc["_id"])
     return doc
+
+def generate_vmess_link(ps_name, host, port, uuid, path="/v2ray"):
+    vmess_dict = {
+        "v": "2",
+        "ps": ps_name,
+        "add": host,
+        "port": str(port),
+        "id": uuid,
+        "aid": "0",
+        "scy": "auto",
+        "net": "ws",
+        "type": "none",
+        "host": host,
+        "path": path,
+        "tls": "tls"
+    }
+    json_str = json.dumps(vmess_dict)
+    b64_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+    return f"vmess://{b64_str}"
+
+def generate_vless_link(ps_name, host, port, uuid, path="/v2ray"):
+    return f"vless://{uuid}@{host}:{port}?type=ws&security=tls&path={path}#{ps_name}"
 
 
 # ==========================================
@@ -51,7 +75,7 @@ def admin_panel():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spidy VPS Manager - Admin Panel</title>
+  <title>Zero VPN Manager - Admin Panel</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -71,14 +95,13 @@ def admin_panel():
     input, textarea, select { width: 100%; padding: 12px; margin-top: 5px; background: #0f172a; border: 1px solid var(--border); color: white; border-radius: 8px; box-sizing: border-box; font-size: 0.95rem; }
     input:focus, textarea:focus { border-color: var(--accent); outline: none; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
     button { background: var(--accent); color: white; padding: 12px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 15px; transition: 0.2s; }
     button:active { opacity: 0.8; }
     button.danger { background: var(--danger); }
     button.success { background: var(--success); }
     button.secondary { background: #475569; }
     
-    /* Table / List View */
     .server-item { background: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
     .server-header { display: flex; justify-content: space-between; align-items: center; }
     .server-name { font-weight: bold; font-size: 1.1rem; }
@@ -86,59 +109,64 @@ def admin_panel():
     .badge { background: #1e293b; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--border); }
     .actions { display: flex; gap: 8px; margin-top: 5px; }
     
-    /* Modal */
     .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; padding: 15px; z-index: 100; }
-    .modal-content { background: var(--card-bg); width: 100%; max-width: 500px; padding: 20px; border-radius: 12px; border: 1px solid var(--border); max-height: 90vh; overflow-y: auto; }
+    .modal-content { background: var(--card-bg); width: 100%; max-width: 550px; padding: 20px; border-radius: 12px; border: 1px solid var(--border); max-height: 90vh; overflow-y: auto; }
   </style>
 </head>
 <body>
 <div class="container">
-  <h2>⚙️ Spidy VPS Admin & Creator</h2>
+  <h2>🛡️ Zero VPN Server Admin Panel</h2>
 
   <!-- QUICK CREATE USER FORM -->
   <div class="card" style="border-color: #3b82f6;">
-    <div class="card-title">👤 Quick Create SSH Account</div>
+    <div class="card-title">👤 Quick Create Zero VPN Account</div>
     <label>Select Server</label>
     <select id="userServerId"></select>
     
     <div class="grid-2">
-      <div><label>Username</label><input type="text" id="newUsername" placeholder="spidyuser"></div>
+      <div><label>Username</label><input type="text" id="newUsername" placeholder="zerouser"></div>
       <div><label>Password</label><input type="text" id="newPassword" placeholder="pass123"></div>
     </div>
     
     <label>Duration (Days)</label>
     <input type="number" id="newDuration" value="7">
 
-    <button class="success" onclick="createAccount()">⚡ Generate Account</button>
+    <button class="success" onclick="createAccount()">⚡ Generate Zero VPN Account</button>
   </div>
 
   <!-- SERVER MANAGEMENT FORM -->
   <div class="card">
-    <div class="card-title" id="formTitle">➕ Add New VPS Server</div>
+    <div class="card-title" id="formTitle">➕ Add Zero VPN Server</div>
     <input type="hidden" id="serverId">
     
     <label>Server Name</label>
-    <input type="text" id="name" placeholder="Oracle-US-01">
+    <input type="text" id="name" placeholder="SG-ZeroVIP-01">
     
     <div class="grid-2">
-      <div><label>Country Name</label><input type="text" id="country" placeholder="United States"></div>
-      <div><label>Flag Emoji</label><input type="text" id="flagEmoji" placeholder="🇺🇸"></div>
+      <div><label>Country Name</label><input type="text" id="country" placeholder="Singapore"></div>
+      <div><label>Flag Emoji</label><input type="text" id="flagEmoji" placeholder="🇸🇬"></div>
     </div>
 
     <label>Host / IP Address</label>
-    <input type="text" id="host" placeholder="140.245.224.150">
+    <input type="text" id="host" placeholder="129.225.117.239">
     
-    <div class="grid-3">
+    <div class="grid-4">
       <div><label>SSH Port</label><input type="number" id="sshPort" value="22"></div>
       <div><label>SSL Port</label><input type="number" id="sslPort" value="443"></div>
       <div><label>UDP Port</label><input type="number" id="udpPort" value="7300"></div>
+      <div><label>V2Ray Port</label><input type="number" id="v2rayPort" value="8080"></div>
+    </div>
+
+    <div class="grid-2">
+      <div><label>V2Ray WS Path</label><input type="text" id="v2rayPath" value="/v2ray"></div>
+      <div><label>V2Ray Static UUID</label><input type="text" id="v2rayUuid" placeholder="auto-generated if empty"></div>
     </div>
     
     <label>SSH Username</label>
     <input type="text" id="user" value="ubuntu" placeholder="ubuntu or root">
     
     <label>Private SSH Key (`cat ~/.ssh/id_rsa` or `.key` file content)</label>
-    <textarea id="privateKey" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."></textarea>
+    <textarea id="privateKey" rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."></textarea>
     
     <div style="display:flex; gap:10px;">
       <button onclick="saveServer()">Save Server</button>
@@ -148,7 +176,7 @@ def admin_panel():
 
   <!-- SERVER LIST -->
   <div class="card">
-    <div class="card-title">🖥️ Server List</div>
+    <div class="card-title">🖥️ Active Zero VPN Servers</div>
     <div id="serverList">Loading...</div>
   </div>
 </div>
@@ -156,9 +184,9 @@ def admin_panel():
 <!-- ACCOUNT CONFIG RESULT MODAL -->
 <div id="resultModal" class="modal">
   <div class="modal-content">
-    <div class="card-title">🎉 Account Created Successfully!</div>
-    <textarea id="accountResultText" rows="12" readonly style="font-family: monospace; font-size: 0.85rem;"></textarea>
-    <button class="success" onclick="copyAccountConfig()">📋 Copy Config Details</button>
+    <div class="card-title">🎉 Zero VPN Account Created!</div>
+    <textarea id="accountResultText" rows="14" readonly style="font-family: monospace; font-size: 0.85rem;"></textarea>
+    <button class="success" onclick="copyAccountConfig()">📋 Copy Details</button>
     <button class="secondary" onclick="closeModal()">Close</button>
   </div>
 </div>
@@ -171,11 +199,9 @@ def admin_panel():
     const res = await fetch(API_URL);
     serversCache = await res.json();
     
-    // Populate Select Options
     const select = document.getElementById('userServerId');
     select.innerHTML = serversCache.map(s => `<option value="${s._id}">${s.flagEmoji || '🌐'} ${s.name} (${s.host})</option>`).join('');
 
-    // Populate List
     const list = document.getElementById('serverList');
     if (serversCache.length === 0) {
       list.innerHTML = '<p style="color:#94a3b8;">No servers added yet.</p>';
@@ -188,7 +214,7 @@ def admin_panel():
           <div class="server-name">${s.flagEmoji || '🌐'} ${s.name} <span class="badge">${s.country || 'N/A'}</span></div>
           <span class="badge" style="color:#60a5fa;">User: ${s.user || 'root'}</span>
         </div>
-        <div class="server-meta">IP: <b>${s.host}</b> | SSH: <b>${s.sshPort}</b> | SSL: <b>${s.sslPort}</b> | UDP: <b>${s.udpPort}</b></div>
+        <div class="server-meta">IP: <b>${s.host}</b> | SSH: <b>${s.sshPort}</b> | SSL: <b>${s.sslPort}</b> | V2Ray: <b>${s.v2rayPort || 8080}</b></div>
         <div class="actions">
           <button class="secondary" style="margin:0;" onclick='editServer(${JSON.stringify(s)})'>Edit</button>
           <button class="danger" style="margin:0;" onclick="deleteServer('${s._id}')">Delete</button>
@@ -207,6 +233,9 @@ def admin_panel():
       sshPort: parseInt(document.getElementById('sshPort').value),
       sslPort: parseInt(document.getElementById('sslPort').value),
       udpPort: parseInt(document.getElementById('udpPort').value),
+      v2rayPort: parseInt(document.getElementById('v2rayPort').value),
+      v2rayPath: document.getElementById('v2rayPath').value,
+      v2rayUuid: document.getElementById('v2rayUuid').value,
       user: document.getElementById('user').value,
       privateKey: document.getElementById('privateKey').value
     };
@@ -238,7 +267,7 @@ def admin_panel():
     }
 
     const btn = event.target;
-    btn.innerText = 'Creating SSH User...';
+    btn.innerText = 'Creating Account...';
     btn.disabled = true;
 
     try {
@@ -249,18 +278,18 @@ def admin_panel():
       });
 
       const data = await res.json();
-      btn.innerText = '⚡ Generate Account';
+      btn.innerText = '⚡ Generate Zero VPN Account';
       btn.disabled = false;
 
       if (res.ok) {
-        const text = `=========================\n  SPIDY VPS ACCOUNT DATA  \n=========================\nServer   : ${data.flagEmoji} ${data.serverName} (${data.country})\nHost IP  : ${data.host}\nUsername : ${data.username}\nPassword : ${data.password}\n-------------------------\nSSL Port : ${data.sslPort}\nSSH Port : ${data.sshPort}\nUDP Port : ${data.udpPort}\n-------------------------\nExpires  : ${data.expired}\nBanner   : ${data.banner}\n=========================`;
+        const text = `=========================\n  ZERO VPN ACCOUNT DATA  \n=========================\nServer   : ${data.flagEmoji} ${data.serverName} (${data.country})\nHost IP  : ${data.host}\nUsername : ${data.username}\nPassword : ${data.password}\n-------------------------\nSSH Port : ${data.sshPort}\nSSL Port : ${data.sslPort}\nUDP Port : ${data.udpPort}\nExpires  : ${data.expired}\n=========================\n--- V2RAY (VMESS) ---\n${data.v2ray.vmess}\n\n--- V2RAY (VLESS) ---\n${data.v2ray.vless}\n=========================`;
         document.getElementById('accountResultText').value = text;
         document.getElementById('resultModal').style.display = 'flex';
       } else {
         alert('Error: ' + (data.detail || 'Failed to create user'));
       }
     } catch (e) {
-      btn.innerText = '⚡ Generate Account';
+      btn.innerText = '⚡ Generate Zero VPN Account';
       btn.disabled = false;
       alert('Network Error: ' + e.message);
     }
@@ -286,9 +315,12 @@ def admin_panel():
     document.getElementById('sshPort').value = s.sshPort;
     document.getElementById('sslPort').value = s.sslPort;
     document.getElementById('udpPort').value = s.udpPort;
+    document.getElementById('v2rayPort').value = s.v2rayPort || 8080;
+    document.getElementById('v2rayPath').value = s.v2rayPath || '/v2ray';
+    document.getElementById('v2rayUuid').value = s.v2rayUuid || '';
     document.getElementById('user').value = s.user || 'ubuntu';
     document.getElementById('privateKey').value = s.privateKey;
-    document.getElementById('formTitle').innerText = '✏️ Edit VPS Server';
+    document.getElementById('formTitle').innerText = '✏️ Edit Zero VPN Server';
     window.scrollTo({ top: 300, behavior: 'smooth' });
   }
 
@@ -305,9 +337,12 @@ def admin_panel():
     document.getElementById('country').value = '';
     document.getElementById('flagEmoji').value = '';
     document.getElementById('host').value = '';
+    document.getElementById('v2rayPort').value = 8080;
+    document.getElementById('v2rayPath').value = '/v2ray';
+    document.getElementById('v2rayUuid').value = '';
     document.getElementById('user').value = 'ubuntu';
     document.getElementById('privateKey').value = '';
-    document.getElementById('formTitle').innerText = '➕ Add New VPS Server';
+    document.getElementById('formTitle').innerText = '➕ Add Zero VPN Server';
   }
 
   loadServers();
@@ -318,12 +353,66 @@ def admin_panel():
 
 
 # ==========================================
-# 2. PUBLIC API ENDPOINTS
+# 2. ZERO VPN APP PUBLIC ENDPOINTS
 # ==========================================
 
 @app.get("/")
 def home():
-    return {"status": "Spidy VPS Python API is Online", "admin": "/admin"}
+    return {"status": "Zero VPN API Engine Online", "admin": "/admin", "config": "/api/v1/config.json"}
+
+# Endpoint consumed directly by Zero VPN App on launch
+@app.get("/api/v1/config.json")
+def get_zero_vpn_config():
+    database = get_db()
+    db_servers = list(database.servers.find({"isActive": True}))
+    
+    server_list = []
+    for s in db_servers:
+        server_list.append({
+            "name": f"{s.get('flagEmoji', '🌐')} {s.get('name', 'Zero Server')}",
+            "flag": s.get("country", "US"),
+            "host": s.get("host"),
+            "port": s.get("sslPort", 443),
+            "ssh_port": s.get("sshPort", 22),
+            "ssl_port": s.get("sslPort", 443),
+            "udpgw_port": s.get("udpPort", 7300),
+            "v2ray_port": s.get("v2rayPort", 8080),
+            "v2ray_path": s.get("v2rayPath", "/v2ray"),
+            "category": "VIP"
+        })
+
+    return {
+        "version": 1.0,
+        "title": "Zero VPN Remote Config",
+        "message": "Welcome to Zero VPN - Connected to high-speed infrastructure!",
+        "servers": server_list,
+        "networks": [
+            {
+                "name": "🇱🇰 Sri Lanka Airtel Unlimited",
+                "category": "Airtel",
+                "tunnel_type": "SSL_TLS",
+                "sni_host": "web.whatsapp.com",
+                "payload": "",
+                "custom_dns": "8.8.8.8"
+            },
+            {
+                "name": "🇱🇰 Sri Lanka Dialog Zoom Bypass (SSL)",
+                "category": "Dialog",
+                "tunnel_type": "SSL_PAYLOAD",
+                "sni_host": "zoom.us",
+                "payload": "GET / HTTP/1.1[crlf]Host: zoom.us[crlf]Upgrade: websocket[crlf][crlf]",
+                "custom_dns": "1.1.1.1"
+            },
+            {
+                "name": "🌐 Direct SSH + SSL Tunnel",
+                "category": "Direct",
+                "tunnel_type": "DIRECT_SSL",
+                "sni_host": "",
+                "payload": "",
+                "custom_dns": "8.8.8.8"
+            }
+        ]
+    }
 
 @app.get("/api/servers")
 def get_public_servers():
@@ -352,11 +441,9 @@ def create_ssh_account(payload: dict = Body(...)):
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    # Expiry Date Calculation
     exp_date = datetime.date.today() + datetime.timedelta(days=duration)
     formatted_exp_date = exp_date.strftime("%Y-%m-%d")
 
-    # Determine command based on SSH user (root vs ubuntu/sudo)
     ssh_user = server.get("user", "root")
     if ssh_user == "root":
         ssh_command = f"/usr/local/bin/create-user.sh {clean_user} {password} {duration}"
@@ -364,7 +451,6 @@ def create_ssh_account(payload: dict = Body(...)):
         ssh_command = f"sudo /usr/local/bin/create-user.sh {clean_user} {password} {duration}"
 
     try:
-        # Load Private Key with Paramiko
         key_file = io.StringIO(server["privateKey"].strip())
         
         try:
@@ -399,8 +485,17 @@ def create_ssh_account(payload: dict = Body(...)):
                 "createdAt": datetime.datetime.utcnow()
             })
 
+            v2_uuid = server.get("v2rayUuid") or "00000000-0000-0000-0000-000000000000"
+            v2_port = server.get("v2rayPort", 8080)
+            v2_path = server.get("v2rayPath", "/v2ray")
+            server_title = f"{server.get('flagEmoji', '🌐')} {server.get('name', 'Zero Server')}"
+
+            vmess_link = generate_vmess_link(server_title, server["host"], v2_port, v2_uuid, v2_path)
+            vless_link = generate_vless_link(server_title, server["host"], v2_port, v2_uuid, v2_path)
+
             return {
                 "success": True,
+                "appName": "Zero VPN",
                 "serverName": server.get("name"),
                 "country": server.get("country", "United States"),
                 "flagEmoji": server.get("flagEmoji", "🇺🇸"),
@@ -411,7 +506,14 @@ def create_ssh_account(payload: dict = Body(...)):
                 "username": clean_user,
                 "password": password,
                 "expired": formatted_exp_date,
-                "banner": "Server by spidy"
+                "banner": "Powered by Zero VPN",
+                "v2ray": {
+                    "port": v2_port,
+                    "uuid": v2_uuid,
+                    "path": v2_path,
+                    "vmess": vmess_link,
+                    "vless": vless_link
+                }
             }
         else:
             raise HTTPException(status_code=400, detail=out_msg or err_msg or "Failed to create user account")
